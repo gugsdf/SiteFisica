@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Simulação Lançamento Parabólico - Piscina Lateral</title>
+    <style>
+        body {
+            background: #e0f7ff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            color: #222;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            color: #007acc;
+            margin-bottom: 10px;
+        }
+
+        .inputs {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            max-width: 700px;
+            width: 100%;
+            justify-content: center;
+        }
+
+        label {
+            display: flex;
+            flex-direction: column;
+            font-weight: 600;
+            color: #005f99;
+        }
+
+        input {
+            margin-top: 6px;
+            padding: 8px 12px;
+            font-size: 1em;
+            border: 1.8px solid #007acc;
+            border-radius: 6px;
+            width: 100px;
+        }
+
+        input:focus {
+            border-color: #004d80;
+            outline: none;
+        }
+
+        button {
+            background: #007acc;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 26px;
+            font-size: 1.1em;
+            cursor: pointer;
+            margin-top: 24px;
+            transition: background-color 0.25s;
+        }
+
+        button:hover {
+            background: #005f99;
+        }
+
+        canvas {
+            margin-top: 30px;
+            border-radius: 12px;
+            background: linear-gradient(to top, #2e86de 0%, #a9d6ff 40%, #fff 100%);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.15);
+            max-width: 900px;
+            width: 100%;
+            height: 450px;
+            display: block;
+        }
+
+        #resultados {
+            margin-top: 25px;
+            max-width: 700px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.12);
+            padding: 20px 25px;
+            font-size: 1em;
+            color: #004d80;
+            line-height: 1.5em;
+        }
+
+        #resultados h2,
+        #resultados h3 {
+            margin-top: 0;
+            color: #007acc;
+        }
+
+        .highlight {
+            font-weight: 700;
+            color: #cc3300;
+        }
+    </style>
+</head>
+
+    <body>
+
+    <h1>Simulação Lançamento Parabólico com Piscina Lateral</h1>
+
+    <div class="inputs">
+        <label>
+            Velocidade Inicial (m/s)
+            <input type="number" id="velocidade" value="7.2" min="1" max="40" step="0.1" />
+        </label>
+        <label>
+            Ângulo de Lançamento (°)
+            <input type="number" id="angulo" value="51" min="10" max="80" step="1" />
+        </label>
+        <label>
+            Massa do Objeto (kg)
+            <input type="number" id="massa" value="1.7" min="0.1" max="10" step="0.1" />
+        </label>
+        <button onclick="simular()">Simular</button>
+    </div>
+
+    <canvas id="grafico" width="900" height="450"></canvas>
+
+    <div id="resultados"></div>
+
+    <script>
+        const canvas = document.getElementById("grafico");
+        const ctx = canvas.getContext("2d");
+        const escala = 20; // 1 metro = 25 pixels
+        const alturaChao = 3; // metros - altura do chão
+        const alturaAgua = 3;  // altura da água (nível)
+        const larguraChao = 2;   // largura do chão (antes da água)
+        const larguraAgua = 111;  // largura da água (piscina)
+        const g = 9.8;           // gravidade m/s²
+        const densidadeAgua = 1000; // kg/m³
+
+        let anim;
+
+        function simular() {
+            cancelAnimationFrame(anim);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Inputs
+            const v0 = parseFloat(document.getElementById("velocidade").value);
+            const ang = parseFloat(document.getElementById("angulo").value) * Math.PI / 180;
+            const massa = parseFloat(document.getElementById("massa").value);
+
+            const v0x = v0 * Math.cos(ang);
+            const v0y = v0 * Math.sin(ang);
+
+            const densidadeObjeto = 400; // densidade do objeto (ex: rolha)
+            const volume = massa / densidadeObjeto;
+
+            // Força de empuxo
+            const empuxo = densidadeAgua * volume * g;
+            const peso = massa * g;
+            const aAgua = (empuxo - peso) / massa; // aceleração líquida na água
+
+            const xEntrada = larguraChao; // ponto onde começa a água no eixo x
+
+            let t = 0;
+            const passo = 0.006;
+
+            let entrouNaAgua = false;
+            let tempoEntrada = 0;
+            let posEntrada = { x: 0, y: 0 };
+            let vyEntrada = 0;
+
+            // Array para armazenar os pontos para desenhar a linha da trajetória
+            let pontos = [];
+
+            // Função para posição fora da água (movimento parabólico normal)
+            function posFora(t) {
+                return {
+                    x: 1.3 + v0x * t,
+                    y: alturaChao + v0y * t - 0.5 * g * t * t
+                };
+            }
+
+            // Função para posição dentro da água (considerando aceleração líquida)
+            function posDentro(t) {
+                return {
+                    x: posEntrada.x + 1 * v0x * t, // horizontal constante (pode ajustar velocidade)
+                    y: posEntrada.y + vyEntrada * t + 0.5 * aAgua * t * t
+                };
+            }
+
+            // Desenha o ambiente: chão e piscina
+            function desenharAmbiente() {
+                // Chão marrom
+                ctx.fillStyle = "#754c24";
+                ctx.fillRect(0, canvas.height - alturaChao * escala, larguraChao * escala, alturaChao * escala);
+
+                // Água azul transparente
+                ctx.fillStyle = "rgba(0,128,255,0.4)";
+                ctx.fillRect(larguraChao * escala, canvas.height - alturaAgua * escala, larguraAgua * escala, alturaAgua * escala);
+
+                // Linha divisória chão-água
+                ctx.strokeStyle = "#004d80";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(larguraChao * escala, canvas.height - alturaAgua * escala);
+                ctx.lineTo(canvas.width, canvas.height - alturaAgua * escala);
+                ctx.stroke();
+            }
+
+            // Função de animação
+            function animar() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                desenharAmbiente();
+
+                let p;
+
+                if (!entrouNaAgua) {
+                    p = posFora(t);
+                    if (p.x >= xEntrada && p.y <= alturaAgua) {
+                        entrouNaAgua = true;
+                        tempoEntrada = t;
+                        posEntrada = p;
+                        vyEntrada = v0y - g * tempoEntrada;
+                    }
+                } else {
+                    p = posDentro(t - tempoEntrada);
+
+                    // Para animação se bola subir acima da água depois de entrar
+                    if (p.y > alturaAgua) {
+                        cancelAnimationFrame(anim);
+                        mostrarResultados();
+                        return;
+                    }
+                }
+
+                // Adiciona ponto para desenhar linha da trajetória
+                pontos.push(p);
+
+                // Desenha linha da trajetória
+                ctx.beginPath();
+                ctx.strokeStyle = "#cc3300";
+                ctx.lineWidth = 2;
+                for (let i = 0; i < pontos.length; i++) {
+                    const pt = pontos[i];
+                    const x = pt.x * escala;
+                    const y = canvas.height - pt.y * escala;
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+
+                // Desenha bola
+                ctx.beginPath();
+                ctx.fillStyle = "#e60000";
+                ctx.arc(p.x * escala, canvas.height - p.y * escala, 8, 0, Math.PI * 2);
+                ctx.fill();
+
+                t += passo;
+
+                // Para animar enquanto a bola está dentro do canvas e acima do chão
+                if (p.y >= 0 && p.x * escala < canvas.width) {
+                    anim = requestAnimationFrame(animar);
+                } else {
+                    mostrarResultados();
+                }
+            }
+
+            function mostrarResultados() {
+                const alturaMax = (v0y ** 2) / (2 * g);
+                const tempoTotal = (2 * v0y) / g;
+
+                document.getElementById("resultados").innerHTML = `
+                    <h3>🔍 Resultados:</h3>
+                    <p><b>Velocidade horizontal inicial:</b> ${v0x.toFixed(2)} m/s</p>
+                    <p><b>Velocidade vertical inicial:</b> ${v0y.toFixed(2)} m/s</p>
+                    <p><b>Altura Máxima (antes da água):</b> ${alturaMax.toFixed(3)} m</p>
+                    <p><b>Empuxo (força para cima na água):</b> ${empuxo.toFixed(2)} N</p>
+                    <p><b>Peso (força para baixo):</b> ${peso.toFixed(2)} N</p>
+                    <p><b>Aceleração líquida dentro da água:</b> ${aAgua.toFixed(2)} m/s²</p>
+                `;
+            }
+
+            // Começa a animação
+            animar();
+        }
+    </script>
+
+</body>
+
+</html>
